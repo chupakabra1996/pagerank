@@ -10,129 +10,93 @@ import java.util.stream.Collectors;
 
 public class App {
 
-    public static void main( String[] args ) throws IOException {
+    public static final String BASE_URL = "https://www.kpfu.ru";
+    public static final int TOTAL_LINKS = 50;
 
+    public static void main(String[] args) throws IOException, InterruptedException {
 
-        final String originLink = "https://www.kpfu.ru";
-        final int totalLinks = 20;
-
-        Document document = Jsoup.connect(originLink).get();
+        Document document = Jsoup.connect(BASE_URL).get();
 
         // select only links -> get their href values -> filter [no relative links] -> top
         List<String> hrefs = document.select("a[href]").eachAttr("href").stream()
                 .filter(x -> !x.endsWith("kpfu.ru/") && !x.contains("javascript") && !x.startsWith("#")
-                        && !x.startsWith("/") && !x.contains("tab") && !x.equals(originLink))
+                        && !x.startsWith("/") && !x.contains("tab") && !x.equals(BASE_URL))
                 .distinct()
-                .limit(totalLinks - 1) // except origin link
+                .limit(TOTAL_LINKS - 1) // except origin link
                 .collect(Collectors.toList());
 
-        hrefs.add(0, originLink);
+        hrefs.add(0, BASE_URL);
 
-        String [][] linksMatrix = new String[hrefs.size()][hrefs.size()];
+        assert (hrefs.size() == TOTAL_LINKS);
 
-        for (int i = 0; i < linksMatrix.length; i++) {
-            linksMatrix[0][i] = hrefs.get(i);
-            linksMatrix[i][i] = hrefs.get(i);
+        // =============
+
+        SparseMatrix sparseMatrix = new SparseMatrix(TOTAL_LINKS);
+
+        for (int i = 0; i < TOTAL_LINKS; i++) {
+
+            sparseMatrix.put(0, i, 1D);
+            sparseMatrix.put(i, i, 1D);
         }
 
-        // iterate through all links (except the 1st)
         for (int i = 1; i < hrefs.size(); i++) {
 
             String currentLink = hrefs.get(i);
+
             document = Jsoup.connect(currentLink).get();
+
             System.out.println("Done parsing: " + currentLink);
+
             Set<String> currentLinkHrefs = new HashSet<>(document.select("a[href]").eachAttr("href"));
 
-            // columns
-            for (int j = 0; j < linksMatrix.length; j++) {
+            for (int j = 0; j < sparseMatrix.size(); j++) {
                 if (currentLinkHrefs.contains(hrefs.get(j))) {
-                    linksMatrix[i][j] = hrefs.get(j);
+                    sparseMatrix.put(i, j, 1D);
                 }
             }
         }
 
-        System.out.println("done parsing websites");
+        System.out.println("Done parsing!");
 
-        // page rank
+        // ============== Sequential ===============
 
-        // convert String[][] to double[][]
-        double[][] matrix = new double[linksMatrix.length][linksMatrix.length];
+        SparseVector pageRank = new SparseVector(sparseMatrix.size());
 
-        for (int i = 0; i < linksMatrix.length; i++) {
-            for (int j = 0; j < linksMatrix.length; j++) {
-                if (Objects.isNull(linksMatrix[i][j])) {
-                    matrix[i][j] = 0d;
-                } else {
-                    matrix[i][j] = 1d;
-                }
-            }
-        }
-
-        System.out.println(Arrays.deepToString(matrix));
-
-        double[] pageranks = new double[linksMatrix.length];
-        Arrays.fill(pageranks, 1.);
-
-        System.out.println("start pagerank");
+        pageRank.fillWith(1D);
 
         long startTime = System.nanoTime();
-        for (int i = 0; i < 70; i++) {
-            pageranks = multMatrixVector(matrix, pageranks);
-            normPageranks(pageranks);
+
+        for (int i = 0; i < 1; i++) {
+            pageRank = sparseMatrix.times(pageRank);
+            pageRank.normalize();
         }
+
         long endTime = System.nanoTime();
-        System.out.printf("Time elapsed: %d ms\n", TimeUnit.NANOSECONDS.toMillis(endTime - startTime));
 
-        List<Pair> pairs = new ArrayList<>(pageranks.length);
-        for (int i = 0; i < pageranks.length; i++) {
-            pairs.add(new Pair(hrefs.get(i), pageranks[i]));
+        System.out.println(pageRank.toString());
+
+        System.out.printf("Time elapsed (sequential): %d ms\n", TimeUnit.NANOSECONDS.toMillis(endTime - startTime));
+
+        // ============== Parallel ===============
+
+        SparseVector pageRankParallel = new SparseVector(sparseMatrix.size());
+
+        pageRankParallel.fillWith(1D);
+
+        startTime = System.nanoTime();
+
+        for (int i = 0; i < 1; i++) {
+
+            // parallel
+            pageRankParallel = sparseMatrix.parallelTimes(pageRankParallel);
+            pageRankParallel.normalize();
         }
 
-        System.out.println(pairs.stream().sorted((Comparator.comparing(o -> o.value))).collect(Collectors.toList()).toString());
+        endTime = System.nanoTime();
+
+        System.out.println(pageRankParallel.toString());
+
+        System.out.printf("Time elapsed (parallel): %d ms\n", TimeUnit.NANOSECONDS.toMillis(endTime - startTime));
     }
 
-    public static double[] multMatrixVector(double[][] m, double[] v) {
-
-        double[] pageranks = new double[v.length];
-
-        Arrays.fill(pageranks, 0d);
-
-        for (int i = 0; i < v.length; ++i) {
-            for (int j = 0; j < v.length; ++j) {
-                pageranks[i] += m[i][j] * v[j];
-            }
-        }
-
-        return pageranks;
-    }
-
-    static void normPageranks(double[] pageranks) {
-        double sum = 0;
-
-        for (double pagerank : pageranks) {
-            sum += pagerank;
-        }
-
-        for (int j = 0; j < pageranks.length; ++j) {
-            pageranks[j] /= sum;
-        }
-    }
-
-    static class Pair {
-        String key;
-        Double value;
-
-        public Pair(String key, Double value) {
-            this.key = key;
-            this.value = value;
-        }
-
-        @Override
-        public String toString() {
-            return "{" +
-                    "ресурс='" + key + '\'' +
-                    ", ранк=" + value +
-                    '}';
-        }
-    }
 }
