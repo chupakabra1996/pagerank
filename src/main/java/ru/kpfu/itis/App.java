@@ -10,8 +10,8 @@ import java.util.stream.Collectors;
 
 public class App {
 
-    public static final String BASE_URL = "https://www.kpfu.ru";
-    public static final int TOTAL_LINKS = 50;
+    private static final String BASE_URL = "https://www.kpfu.ru"; // the domain to crawl
+    private static final int TOTAL_LINKS = 50; // number of links to visit
 
     public static void main(String[] args) throws IOException, InterruptedException {
 
@@ -28,8 +28,6 @@ public class App {
         hrefs.add(0, BASE_URL);
 
         assert (hrefs.size() == TOTAL_LINKS);
-
-        // =============
 
         SparseMatrix sparseMatrix = new SparseMatrix(TOTAL_LINKS);
 
@@ -58,7 +56,7 @@ public class App {
 
         System.out.println("Done parsing!");
 
-        // ============== Sequential ===============
+        // ============== Sequential PR ===============
 
         SparseVector pageRank = new SparseVector(sparseMatrix.size());
 
@@ -77,7 +75,7 @@ public class App {
 
         System.out.printf("Time elapsed (sequential): %d ms\n", TimeUnit.NANOSECONDS.toMillis(endTime - startTime));
 
-        // ============== Parallel ===============
+        // ============== Parallel PR ===============
 
         SparseVector pageRankParallel = new SparseVector(sparseMatrix.size());
 
@@ -87,7 +85,6 @@ public class App {
 
         for (int i = 0; i < 1; i++) {
 
-            // parallel
             pageRankParallel = sparseMatrix.parallelTimes(pageRankParallel);
             pageRankParallel.normalize();
         }
